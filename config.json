@@ -38,6 +38,14 @@
       "type": "text",
       "action": "add",
       "args": {
+        "name": "cn2",
+        "uri": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/ChinaMax/ChinaMax_IP.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
         "name": "tor",
         "uri": "https://check.torproject.org/torbulkexitlist"
       }
