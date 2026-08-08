@@ -82,7 +82,7 @@ jobs:
             | grep -v '^[[:space:]]*$' \
             | sed -E 's/^IP-CIDR,//; s/^IP-CIDR6,//' \
             | grep -v '^[0-9]\+$' \
-            > ./geoip-builder/china_clean.txt
+            > china_clean.txt
 
       - name: Build geoip files
         run: |
