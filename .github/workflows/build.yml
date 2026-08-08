@@ -52,7 +52,11 @@ jobs:
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o ./output/GeoLite2-ASN-CSV.zip
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${LICENSE_KEY}&suffix=tar.gz" -o ./output/GeoLite2-Country.tar.gz
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o ./output/GeoLite2-Country-CSV.zip
-
+      - name: Check LICENSE_KEY exists
+        run: |
+          if [ -n "$LICENSE_KEY" ]; then echo "✅ LICENSE_KEY is set"; else echo "❌ LICENSE_KEY is NOT set"; fi
+        env:
+          LICENSE_KEY: ${{ secrets.LICENSE_KEY }}
       - name: Prepare GeoLite2 databases
         run: |
           cp ./output/{*.gz,*.zip} ./
