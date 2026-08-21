@@ -38,6 +38,38 @@
       "type": "text",
       "action": "add",
       "args": {
+        "name": "cn-ipinfo",
+        "uri": "https://raw.githubusercontent.com/misakaio/chnroutes2/master/chnroutes.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "cn-cm",
+        "uri": "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/cmcc46.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "cn-ct",
+        "uri": "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/chinanet46.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
+        "name": "cn-cu",
+        "uri": "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/unicom46.txt"
+      }
+    },
+    {
+      "type": "text",
+      "action": "add",
+      "args": {
         "name": "cn2",
         "uri": "./china_clean.txt"
       }
