@@ -41,8 +41,12 @@ jobs:
         run: |
           echo "TAG_NAME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
           echo "RELEASE_NAME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
+          # 新增：用于 DB-IP 下载的年月
+          echo "YEAR=$(date +%Y)" >> $GITHUB_ENV
+          echo "MONTH=$(date +%m)" >> $GITHUB_ENV
         shell: bash
 
+      # ----- 原有：下载 MaxMind 数据 -----
       - name: Download GeoLite2 databases
         env:
           LICENSE_KEY: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
@@ -52,6 +56,15 @@ jobs:
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o ./output/GeoLite2-ASN-CSV.zip
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${LICENSE_KEY}&suffix=tar.gz" -o ./output/GeoLite2-Country.tar.gz
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o ./output/GeoLite2-Country-CSV.zip
+
+      # ----- 新增：下载 DB-IP Country Lite 数据库 -----
+      - name: Download DB-IP Country Lite database
+        run: |
+          mkdir -p db-ip
+          curl -L -o db-ip/dbip-country-lite.mmdb.gz "https://download.db-ip.com/free/dbip-country-lite-${{ env.YEAR }}-${{ env.MONTH }}.mmdb.gz"
+          gzip -d db-ip/dbip-country-lite.mmdb.gz
+
+      # ----- 原有：准备 MaxMind 数据 -----
       - name: Prepare GeoLite2 databases
         run: |
           cp ./output/{*.gz,*.zip} ./
@@ -69,6 +82,17 @@ jobs:
           cp GeoLite2-Country-CSV_*/*.csv ./geolite2/
           cp GeoLite2-ASN-CSV_*/*.csv ./geolite2/
 
+      # ----- 新增：修改 config.json，加入 DB-IP 数据源 -----
+      - name: Update config.json with DB-IP source
+        run: |
+          # 假定 config.json 中的 "sources" 是一个数组，我们添加一个新对象
+          # 如果 jq 未安装（ubuntu 自带），直接使用
+          jq '.sources += [{"name": "dbip", "file": "db-ip/dbip-country-lite.mmdb", "type": "mmdb"}]' config.json > config.tmp.json
+          mv config.tmp.json config.json
+          # 如果您知道更精确的添加方式，可自行调整
+        shell: bash
+
+      # ----- 原有：清理 ChinaMax_IP.txt -----
       - name: Clean ChinaMax_IP.txt
         run: |
           curl -sSL https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/ChinaMax/ChinaMax_IP.txt \
@@ -85,11 +109,13 @@ jobs:
             | grep -v '::ffff:' \
             > china_clean.txt
 
+      # ----- 原有：构建 GeoIP 文件（此时 config.json 已包含 DB-IP） -----
       - name: Build geoip files
         run: |
           go build ./
           ./geoip convert -c ./config.json
 
+      # ----- 原有：验证 MMDB（此时 DB-IP 的 mmdb 也在 output 或 db-ip 目录，我们只验证 output 下的） -----
       - name: Verify mmdb files
         run: |
           cd ./output || exit 1
@@ -98,6 +124,7 @@ jobs:
             $(go env GOPATH)/bin/mmdbverify -file ${name}
           done
 
+      # ----- 原有：生成 sha256 -----
       - name: Generate sha256 checksum for dat files
         run: |
           cd ./output || exit 1
@@ -112,6 +139,7 @@ jobs:
             sha256sum ${name} > ./${name}.sha256sum
           done
 
+      # ----- 原有：推送 release 分支 -----
       - name: Git push assets to "release" branch
         if: github.event_name != 'pull_request'
         run: |
@@ -125,6 +153,7 @@ jobs:
           git remote add geoip "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
           git push -f -u geoip release
 
+      # ----- 原有：清除 CDN -----
       - name: Purge jsdelivr CDN
         if: github.event_name != 'pull_request'
         run: |
@@ -133,6 +162,7 @@ jobs:
             curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${file}"
           done
 
+      # ----- 原有：删除中间文件（保留最终产物） -----
       - name: Remove some files to avoid publishing to GitHub release
         if: github.event_name != 'pull_request'
         run: |
@@ -141,10 +171,14 @@ jobs:
           rm -rf ./output/GeoLite2-*.mmdb
           rm -rf ./output/GeoLite2-*.sha256sum
           rm -rf ./output/{clash,dat,mrs,nginx,srs,surge,text}
+          # 可选：删除 db-ip 目录，若不想发布
+          rm -rf ./db-ip
 
+      # ----- 原有：创建 Release（此时 output 下只剩 .dat 和 .sha256sum） -----
       - name: Upload files to GitHub release
         if: github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create ${{ env.TAG_NAME }} --title "${{ env.RELEASE_NAME }}" ./output/*
+          
