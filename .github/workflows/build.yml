@@ -45,48 +45,51 @@ jobs:
           echo "MONTH=$(date +%m)" >> $GITHUB_ENV
         shell: bash
 
-      # ----- 只下载 MaxMind ASN 数据（保留 ASN 功能） -----
-      - name: Download GeoLite2 ASN databases
+      # ----- 1. 下载 MaxMind 全部数据（Country + ASN）-----
+      - name: Download GeoLite2 databases
         env:
           LICENSE_KEY: ${{ secrets.MAXMIND_GEOLITE2_LICENSE }}
         run: |
           mkdir -p output
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN&license_key=${LICENSE_KEY}&suffix=tar.gz" -o ./output/GeoLite2-ASN.tar.gz
           curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o ./output/GeoLite2-ASN-CSV.zip
+          curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${LICENSE_KEY}&suffix=tar.gz" -o ./output/GeoLite2-Country.tar.gz
+          curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country-CSV&license_key=${LICENSE_KEY}&suffix=zip" -o ./output/GeoLite2-Country-CSV.zip
 
-      # ----- 下载 DB-IP Country Lite MMDB（替代 MaxMind Country） -----
+      # ----- 2. 下载 DB-IP Country Lite MMDB（作为补充）-----
       - name: Download DB-IP Country Lite database
         run: |
           mkdir -p db-ip
           curl -L -o db-ip/dbip-country-lite.mmdb.gz "https://download.db-ip.com/free/dbip-country-lite-${{ env.YEAR }}-${{ env.MONTH }}.mmdb.gz"
           gzip -d db-ip/dbip-country-lite.mmdb.gz
-          # 复制一份到 output 供 maxmindMMDB 输出使用
-          cp db-ip/dbip-country-lite.mmdb ./output/GeoLite2-Country.mmdb
 
-      # ----- 解压 ASN 数据（不再需要 MaxMind Country） -----
-      - name: Prepare GeoLite2 ASN databases
+      # ----- 3. 解压并准备所有数据 -----
+      - name: Prepare databases
         run: |
-          cp ./output/*.tar.gz ./
-          cp ./output/*.zip ./
+          cp ./output/*.{gz,zip} ./
+          unzip GeoLite2-Country-CSV.zip
           unzip GeoLite2-ASN-CSV.zip
+          tar -xvzf GeoLite2-Country.tar.gz
           tar -xvzf GeoLite2-ASN.tar.gz
-          # 复制 ASN CSV 到 geolite2 目录（供 ASN 输入使用）
+
+          # 复制 MaxMind MMDB 到 output（用于后续 maxmindMMDB 输出）
+          cp GeoLite2-Country_*/*.mmdb ./output/
+          cp GeoLite2-ASN_*/*.mmdb ./output/
+
+          # 复制 MaxMind CSV 到 geolite2（供 ASN 和 Country 输入使用）
           mkdir -p geolite2
+          cp GeoLite2-Country-CSV_*/{GeoLite2-Country-Blocks-*,GeoLite2-Country-Locations-en,GeoLite2-Country-Locations-zh-CN}.csv ./geolite2/
           cp GeoLite2-ASN-CSV_*/*.csv ./geolite2/
-          # 注意：不再有 Country CSV
 
-      # ----- 修改 config.json：将国家数据源替换为 dbipCountryMMDB -----
-      - name: Update config.json to use DB-IP
+      # ----- 4. 修改 config.json：同时保留两个国家数据源，并控制顺序 -----
+      - name: Update config.json for dual sources (DB-IP first, MaxMind second)
         run: |
-          # 使用 jq 替换 input 中类型为 maxmindGeoLite2CountryCSV 的条目
-          # 先删除该条目，再添加新条目（保持位置大致不变）
-          jq '.input |= map(if .type=="maxmindGeoLite2CountryCSV" then empty else . end)' config.json > config.tmp.json
-          # 在 input 数组开头插入新的 dbipCountryMMDB 条目
-          jq '.input = [{"type": "dbipCountryMMDB", "action": "add", "args": {"uri": "./db-ip/dbip-country-lite.mmdb"}}] + .input' config.tmp.json > config.json
-          # 清理
-          rm config.tmp.json
+          # 在 input 数组开头插入 dbipCountryMMDB 条目
+          jq '.input = [{"type": "dbipCountryMMDB", "action": "add", "args": {"uri": "./db-ip/dbip-country-lite.mmdb"}}] + .input' config.json > config.tmp.json
+          mv config.tmp.json config.json
+          # 注意：原有的 maxmindGeoLite2CountryCSV 依然存在，且位于 dbip 之后，优先级更高
 
-      # ----- 以下步骤完全不变 -----
+      # ----- 5. 清理 ChinaMax_IP.txt（不变）-----
       - name: Clean ChinaMax_IP.txt
         run: |
           curl -sSL https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/ChinaMax/ChinaMax_IP.txt \
@@ -103,11 +106,13 @@ jobs:
             | grep -v '::ffff:' \
             > china_clean.txt
 
+      # ----- 6. 构建 GeoIP 文件（不变）-----
       - name: Build geoip files
         run: |
           go build ./
           ./geoip convert -c ./config.json
 
+      # ----- 7. 验证 MMDB（不变）-----
       - name: Verify mmdb files
         run: |
           cd ./output || exit 1
@@ -116,6 +121,7 @@ jobs:
             $(go env GOPATH)/bin/mmdbverify -file ${name}
           done
 
+      # ----- 8. 生成 SHA256（不变）-----
       - name: Generate sha256 checksum for dat files
         run: |
           cd ./output || exit 1
@@ -130,6 +136,7 @@ jobs:
             sha256sum ${name} > ./${name}.sha256sum
           done
 
+      # ----- 9. 推送 release 分支（不变）-----
       - name: Git push assets to "release" branch
         if: github.event_name != 'pull_request'
         run: |
@@ -143,6 +150,7 @@ jobs:
           git remote add geoip "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
           git push -f -u geoip release
 
+      # ----- 10. 清除 CDN（不变）-----
       - name: Purge jsdelivr CDN
         if: github.event_name != 'pull_request'
         run: |
@@ -151,6 +159,7 @@ jobs:
             curl -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${file}"
           done
 
+      # ----- 11. 清理中间文件（保留最终产物）-----
       - name: Remove some files to avoid publishing to GitHub release
         if: github.event_name != 'pull_request'
         run: |
@@ -159,8 +168,9 @@ jobs:
           rm -rf ./output/GeoLite2-*.mmdb
           rm -rf ./output/GeoLite2-*.sha256sum
           rm -rf ./output/{clash,dat,mrs,nginx,srs,surge,text}
-          rm -rf ./db-ip   # 清理中间目录
+          rm -rf ./db-ip   # 清理 DB-IP 原始文件
 
+      # ----- 12. 创建 Release（不变）-----
       - name: Upload files to GitHub release
         if: github.event_name != 'pull_request'
         env:
